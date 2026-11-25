@@ -201,10 +201,10 @@ Under **Permenkes RI No. 72/2016** [2], hospital pharmacies use Consumption, Epi
 Seven normalized tables preserve full auditability: `drugs`, `upload_batches`, `monthly_usage_history` (multi-month time series for ADI/CV²), `stock_batches_ed` (physical vs usable stock and projected expired units), `forecast_results` (including `manual_adjusted_qty` and `adjustment_reason`), `budget_ranking_results`, and `simulation_runs`.
 
 ### 4.3 Demand Pattern Classification & Epoch-Trained Hybrid Forecasting
-Every SKU is classified using Syntetos–Boylan thresholds ($\text{ADI} = 1.32$, $\text{CV}^2 = 0.49$) alongside **ABC** (Pareto spend), **XYZ** (CV variability), and **FSN** (*Fast/Slow/Non-moving*):
-- **Smooth** ($\text{ADI} < 1.32, \text{CV}^2 < 0.49$): Simple Exponential Smoothing (`SES`)
-- **Erratic** ($\text{ADI} < 1.32, \text{CV}^2 \ge 0.49$): `Damped Holt` Exponential Smoothing
-- **Intermittent / Lumpy** ($\text{ADI} \ge 1.32$): **Syntetos–Boylan Approximation (`SBA`)** + *Vital Standby Buffer*
+Every SKU is classified using Syntetos–Boylan thresholds (`ADI = 1.32`, `CV² = 0.49`) alongside **ABC** (Pareto spend), **XYZ** (CV variability), and **FSN** (*Fast/Slow/Non-moving*):
+- **Smooth** (`ADI < 1.32, CV² < 0.49`): Simple Exponential Smoothing (`SES`)
+- **Erratic** (`ADI < 1.32, CV² >= 0.49`): `Damped Holt` Exponential Smoothing
+- **Intermittent / Lumpy** (`ADI >= 1.32`): **Syntetos–Boylan Approximation (`SBA`)** + *Vital Standby Buffer*
 - **Hybrid Epoch Training (`sigapstok/trainer.py`):** A pure-NumPy 2-Layer MLP (ReLU, Adam optimizer, L2 regularization, Huber loss) trained across **{training.epochs} epochs** (best validation checkpoint at **Epoch {training.best_epoch}**) using 6-month lags, rolling statistics, ADI/CV², seasonality (`sin/cos`), and VEN indicators, blended via validation-learned pattern weights with tuned statistical models.
 
 ### 4.4 Budget Ranking Logic
