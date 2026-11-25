@@ -1,4 +1,4 @@
-"""Epoch-based ML + statistical hyperparameter training with anti-overfitting regularization."""
+"""Epoch-based ML + seasonal statistical hyperparameter training and evaluation for SigapStok."""
 
 from __future__ import annotations
 
@@ -59,35 +59,44 @@ def _extend_history_36m(skus: list[dict], seed: int = 99) -> list[dict]:
     return extended
 
 
-def _extract_features(window: list[float], month_idx: int, ven: str) -> np.ndarray:
-    """Build normalized feature vector from 6-month lag window + trend, pattern & seasonality cues."""
-    w = np.array(window[-6:], dtype=np.float64)
-    scale = max(1.0, float(np.mean(w)) + float(np.std(w)))
-    norm_lags = w / scale
+def _compute_scale(window: list[float]) -> float:
+    w6 = window[-6:] if len(window) >= 6 else window
+    return max(1.0, float(np.mean(w6)) + float(np.std(w6)))
 
-    nonzero = w[w > 0]
-    zero_ratio = float(np.mean(w == 0))
-    adi = float(len(w) / max(1, len(nonzero)))
+
+def _extract_features(window: list[float], month_idx: int, ven: str) -> tuple[np.ndarray, float]:
+    """Build normalized feature vector with 6-month lags, lag-12 seasonal anchor, trend, and pattern cues."""
+    scale = _compute_scale(window)
+    w6 = np.array(window[-6:] if len(window) >= 6 else ([0.0] * (6 - len(window)) + list(window)), dtype=np.float64)
+    norm_lags = w6 / scale
+
+    lag_12 = float(window[-12]) / scale if len(window) >= 12 else float(np.mean(norm_lags))
+    same_month_vals = [window[i] for i in range(len(window) % 12, len(window), 12)]
+    same_month_avg = (float(np.mean(same_month_vals)) / scale) if same_month_vals else lag_12
+
+    nonzero = w6[w6 > 0]
+    zero_ratio = float(np.mean(w6 == 0))
+    adi = float(len(w6) / max(1, len(nonzero)))
     mean_nz = float(np.mean(nonzero)) if len(nonzero) > 0 else 0.0
     cv2 = float(np.var(nonzero) / (mean_nz ** 2)) if len(nonzero) > 1 and mean_nz > 0 else 0.0
 
-    # Linear trend slope over last 6 months (normalized)
-    x_idx = np.arange(len(w), dtype=np.float64)
+    x_idx = np.arange(len(w6), dtype=np.float64)
     x_centered = x_idx - np.mean(x_idx)
     slope = float(np.sum(x_centered * norm_lags) / max(1e-6, np.sum(x_centered ** 2)))
 
-    # Exponentially weighted ratio
-    ses_ratio = forecast_ses(w.tolist(), alpha=0.35) / scale
+    ses_ratio = forecast_ses(w6.tolist(), alpha=0.35) / scale
 
     sin_m = math.sin(2.0 * math.pi * (month_idx % 12) / 12.0)
     cos_m = math.cos(2.0 * math.pi * (month_idx % 12) / 12.0)
     ven_v = 1.0 if ven == "V" else 0.0
     ven_e = 1.0 if ven == "E" else 0.0
 
-    return np.array(
+    feat = np.array(
         [
             *norm_lags.tolist(),
-            float(np.mean(w[-3:]) / scale),
+            lag_12,
+            same_month_avg,
+            float(np.mean(w6[-3:]) / scale),
             ses_ratio,
             slope,
             zero_ratio,
@@ -100,12 +109,13 @@ def _extract_features(window: list[float], month_idx: int, ven: str) -> np.ndarr
         ],
         dtype=np.float64,
     )
+    return feat, scale
 
 
 class PureNumpyMLP:
-    """Compact 2-layer MLP with Dropout, L2 weight decay, and Adam optimizer to prevent overfitting."""
+    """Compact 2-layer MLP with Dropout, L2 weight decay, and Adam optimizer."""
 
-    def __init__(self, input_dim: int, hidden_dim: int = 12, seed: int = 42) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int = 16, seed: int = 42) -> None:
         rng = np.random.default_rng(seed)
         self.w1 = rng.normal(0.0, math.sqrt(2.0 / input_dim), size=(input_dim, hidden_dim))
         self.b1 = np.zeros((1, hidden_dim), dtype=np.float64)
@@ -124,7 +134,7 @@ class PureNumpyMLP:
         rng: np.random.Generator | None = None,
     ) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
         z1 = x @ self.w1 + self.b1
-        a1 = np.maximum(0.0, z1)  # ReLU
+        a1 = np.maximum(0.0, z1)
         mask = None
         if dropout_rate > 0.0 and rng is not None:
             keep = 1.0 - dropout_rate
@@ -141,9 +151,9 @@ class PureNumpyMLP:
         self,
         x: np.ndarray,
         y: np.ndarray,
-        lr: float = 0.006,
-        l2_reg: float = 2e-3,
-        dropout_rate: float = 0.20,
+        lr: float = 0.008,
+        l2_reg: float = 1e-3,
+        dropout_rate: float = 0.15,
         rng: np.random.Generator | None = None,
     ) -> float:
         n = x.shape[0]
@@ -196,12 +206,29 @@ class PureNumpyMLP:
         self._params = [self.w1, self.b1, self.w2, self.b2]
 
 
-def _stat_predict_with_params(history: list[float], pattern: str, params: dict[str, dict[str, float]]) -> float:
+def _seasonal_factor(history: list[float]) -> float:
+    """Estimate multiplicative seasonal index for the next month using same-calendar-month history."""
+    if len(history) < 12:
+        return 1.0
+    overall_mean = float(np.mean(history))
+    if overall_mean <= 0:
+        return 1.0
+    target_mod = len(history) % 12
+    same_month = [history[i] for i in range(target_mod, len(history), 12)]
+    if not same_month:
+        return 1.0
+    raw_idx = float(np.mean(same_month)) / overall_mean
+    return float(np.clip(raw_idx, 0.75, 1.35))
+
+
+def _stat_predict_with_params(history: list[float], pattern: str, params: dict[str, dict[str, float]], seasonal: bool = True) -> float:
     if pattern == "SMOOTH":
-        return forecast_ses(history, alpha=params["SMOOTH"]["alpha"])
+        base = forecast_ses(history, alpha=params["SMOOTH"]["alpha"])
+        return base * (_seasonal_factor(history) if seasonal else 1.0)
     if pattern == "ERRATIC":
         p = params["ERRATIC"]
-        return forecast_damped_holt(history, alpha=p["alpha"], beta=p["beta"], phi=p["phi"])
+        base = forecast_damped_holt(history, alpha=p["alpha"], beta=p["beta"], phi=p["phi"])
+        return base * (_seasonal_factor(history) if seasonal else 1.0)
     if pattern in ("INTERMITTENT", "LUMPY"):
         return forecast_sba(history, alpha=params[pattern]["alpha"])
     return 0.0
@@ -227,18 +254,18 @@ def _compute_error_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, 
 
 
 def train_and_evaluate_models(
-    epochs: int = 200,
+    epochs: int = 300,
     seed: int = 42,
     save_artifact_path: str | Path | None = None,
 ) -> TrainingSummary:
     """
-    Train regularized 2-layer MLP (Dropout + L2 + Cosine LR + Early Stopping) and
-    pattern-specific statistical smoothing parameters on 36-month rolling-origin splits.
+    Train regularized 2-layer MLP (with lag-12 seasonal features, Dropout, L2, Cosine LR)
+    and seasonal statistical parameters on 36-month rolling-origin splits.
     """
     base_skus = build_synthetic_rsud_skus(seed=seed)
     skus = _extend_history_36m(base_skus, seed=seed + 50)
 
-    # 1. Rolling-origin split: Train (t=6..23), Val (t=24..29), Test (t=30..35)
+    # 1. Rolling-origin split: Train (t=12..23), Val (t=24..29), Test (t=30..35)
     x_train, y_train = [], []
     x_val, y_val, scales_val, val_meta = [], [], [], []
     x_test, scales_test, test_meta = [], [], []
@@ -247,8 +274,7 @@ def train_and_evaluate_models(
         hist = s["history_36m"]
         for t in range(6, 36):
             window = hist[:t]
-            scale = max(1.0, float(np.mean(window[-6:])) + float(np.std(window[-6:])))
-            feat = _extract_features(window, t, s["ven"])
+            feat, scale = _extract_features(window, t, s["ven"])
             target_ratio = hist[t] / scale
             pattern, _, _ = classify_demand_pattern(window)
 
@@ -272,15 +298,15 @@ def train_and_evaluate_models(
     y_va = np.array(y_val, dtype=np.float64)
     x_te = np.vstack(x_test)
 
-    # 2. Epoch-based MLP training with Dropout, L2, Cosine LR decay, and Early Stopping
-    mlp = PureNumpyMLP(input_dim=x_tr.shape[1], hidden_dim=12, seed=seed)
+    # 2. Epoch-based MLP training
+    mlp = PureNumpyMLP(input_dim=x_tr.shape[1], hidden_dim=16, seed=seed)
     best_val_loss = float("inf")
     best_epoch = 0
     best_weights = mlp.get_weights()
     epoch_history: list[dict[str, float]] = []
 
     rng = np.random.default_rng(seed)
-    lr_max, lr_min = 0.006, 0.0004
+    lr_max, lr_min = 0.008, 0.0003
     for ep in range(1, epochs + 1):
         lr = lr_min + 0.5 * (lr_max - lr_min) * (1.0 + math.cos(math.pi * ep / epochs))
         perm = rng.permutation(len(x_tr))
@@ -288,8 +314,8 @@ def train_and_evaluate_models(
             x_tr[perm],
             y_tr[perm],
             lr=lr,
-            l2_reg=2e-3,
-            dropout_rate=0.20,
+            l2_reg=1e-3,
+            dropout_rate=0.15,
             rng=rng,
         )
 
@@ -302,7 +328,7 @@ def train_and_evaluate_models(
             best_epoch = ep
             best_weights = mlp.get_weights()
 
-        if ep == 1 or ep % 25 == 0 or ep == epochs:
+        if ep == 1 or ep % 50 == 0 or ep == epochs:
             epoch_history.append(
                 {
                     "epoch": ep,
@@ -313,7 +339,7 @@ def train_and_evaluate_models(
 
     mlp.load_weights(best_weights)
 
-    # 3. Fine-grained statistical hyperparameter optimization on validation set
+    # 3. Tune seasonal statistical hyperparameters on validation set
     optimized_stat_params: dict[str, dict[str, float]] = {
         "SMOOTH": {"alpha": 0.35},
         "ERRATIC": {"alpha": 0.35, "beta": 0.15, "phi": 0.85},
@@ -324,19 +350,22 @@ def train_and_evaluate_models(
     smooth_val = [m for m in val_meta if m["pattern"] == "SMOOTH"]
     if smooth_val:
         best_a, best_e = 0.35, float("inf")
-        for a in [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.45, 0.55]:
-            err = sum(abs(m["target"] - forecast_ses(m["history"], alpha=a)) for m in smooth_val)
+        for a in [0.05, 0.10, 0.15, 0.20, 0.25, 0.35, 0.45]:
+            err = sum(abs(m["target"] - forecast_ses(m["history"], alpha=a) * _seasonal_factor(m["history"])) for m in smooth_val)
             if err < best_e:
                 best_e, best_a = err, a
         optimized_stat_params["SMOOTH"] = {"alpha": best_a}
 
     erratic_val = [m for m in val_meta if m["pattern"] == "ERRATIC"]
     if erratic_val:
-        best_p, best_e = (0.30, 0.10, 0.80), float("inf")
-        for a in [0.15, 0.25, 0.35, 0.45]:
-            for b in [0.05, 0.10, 0.15]:
+        best_p, best_e = (0.25, 0.05, 0.80), float("inf")
+        for a in [0.10, 0.20, 0.30, 0.40]:
+            for b in [0.02, 0.05, 0.10]:
                 for phi in [0.70, 0.80, 0.90]:
-                    err = sum(abs(m["target"] - forecast_damped_holt(m["history"], a, b, phi)) for m in erratic_val)
+                    err = sum(
+                        abs(m["target"] - forecast_damped_holt(m["history"], a, b, phi) * _seasonal_factor(m["history"]))
+                        for m in erratic_val
+                    )
                     if err < best_e:
                         best_e, best_p = err, (a, b, phi)
         optimized_stat_params["ERRATIC"] = {"alpha": best_p[0], "beta": best_p[1], "phi": best_p[2]}
@@ -363,7 +392,7 @@ def train_and_evaluate_models(
         for w in [0.0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.65, 0.80, 1.0]:
             tot_err = 0.0
             for i in idxs:
-                stat_p = _stat_predict_with_params(val_meta[i]["history"], pat, optimized_stat_params)
+                stat_p = _stat_predict_with_params(val_meta[i]["history"], pat, optimized_stat_params, seasonal=True)
                 comb = w * float(val_mlp_preds[i]) + (1.0 - w) * stat_p
                 tot_err += abs(val_meta[i]["target"] - comb)
             if tot_err < best_mae:
@@ -384,14 +413,14 @@ def train_and_evaluate_models(
         "LUMPY": {"alpha": 0.15},
     }
     pred_stat_untrained = np.array(
-        [_stat_predict_with_params(m["history"], m["pattern"], default_params) for m in test_meta],
+        [_stat_predict_with_params(m["history"], m["pattern"], default_params, seasonal=False) for m in test_meta],
         dtype=np.float64,
     )
     pred_hybrid_trained = np.array(
         [
             blend_weights.get(m["pattern"], 0.35) * float(test_mlp_preds[i])
             + (1.0 - blend_weights.get(m["pattern"], 0.35))
-            * _stat_predict_with_params(m["history"], m["pattern"], optimized_stat_params)
+            * _stat_predict_with_params(m["history"], m["pattern"], optimized_stat_params, seasonal=True)
             for i, m in enumerate(test_meta)
         ],
         dtype=np.float64,
@@ -404,6 +433,19 @@ def train_and_evaluate_models(
         "SigapStok_MLP_Only": _compute_error_metrics(y_test_true, test_mlp_preds),
         "SigapStok_Trained_Hybrid": _compute_error_metrics(y_test_true, pred_hybrid_trained),
     }
+
+    smooth_idx = [i for i, m in enumerate(test_meta) if m["pattern"] == "SMOOTH"]
+    if smooth_idx:
+        s_true = y_test_true[smooth_idx]
+        for k, preds in [
+            ("RSUD_1Mo_Plus_10Pct", pred_rsud),
+            ("Excel_3Mo_AMC", pred_amc3),
+            ("SigapStok_Untrained_Stat", pred_stat_untrained),
+            ("SigapStok_MLP_Only", test_mlp_preds),
+            ("SigapStok_Trained_Hybrid", pred_hybrid_trained),
+        ]:
+            sm = _compute_error_metrics(s_true, preds[smooth_idx])
+            test_metrics[k]["Smooth_Accuracy_pct"] = sm["Accuracy_pct"]
 
     if save_artifact_path is not None:
         artifact_path = Path(save_artifact_path)
@@ -440,18 +482,12 @@ def predict_with_trained_artifact(
 ) -> tuple[str, float]:
     """Produce a hybrid forecast for a single SKU using saved trained weights."""
     pattern, _, _ = classify_demand_pattern(history)
-    stat_pred = _stat_predict_with_params(history, pattern, artifact["optimized_stat_params"])
+    stat_pred = _stat_predict_with_params(history, pattern, artifact["optimized_stat_params"], seasonal=True)
 
-    if len(history) < 6:
-        padded = [0.0] * (6 - len(history)) + list(history)
-    else:
-        padded = list(history[-6:])
-    scale = max(1.0, float(np.mean(padded)) + float(np.std(padded)))
-    feat = _extract_features(padded, month_idx, ven_status).reshape(1, -1)
-
-    mlp = PureNumpyMLP(input_dim=feat.shape[1], hidden_dim=12)
+    feat, scale = _extract_features(history, month_idx, ven_status)
+    mlp = PureNumpyMLP(input_dim=feat.shape[0], hidden_dim=16)
     mlp.load_weights(artifact["mlp_weights"])
-    mlp_pred = float(mlp.predict(feat)[0]) * scale
+    mlp_pred = float(mlp.predict(feat.reshape(1, -1))[0]) * scale
 
     w = float(artifact["blend_weights"].get(pattern, 0.35))
     hybrid = max(0.0, w * mlp_pred + (1.0 - w) * stat_pred)

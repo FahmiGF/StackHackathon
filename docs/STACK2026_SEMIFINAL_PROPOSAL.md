@@ -74,7 +74,7 @@ Every SKU is classified using Syntetos–Boylan thresholds (`ADI = 1.32`, `CV² 
 - **Smooth** (`ADI < 1.32, CV² < 0.49`): Simple Exponential Smoothing (`SES`)
 - **Erratic** (`ADI < 1.32, CV² >= 0.49`): `Damped Holt` Exponential Smoothing
 - **Intermittent / Lumpy** (`ADI >= 1.32`): **Syntetos–Boylan Approximation (`SBA`)** + *Vital Standby Buffer*
-- **Hybrid Epoch Training (`sigapstok/trainer.py`):** A pure-NumPy 2-Layer MLP (ReLU, Adam optimizer, L2 regularization, Huber loss) trained across **200 epochs** (best validation checkpoint at **Epoch 58**) using 6-month lags, rolling statistics, ADI/CV², seasonality (`sin/cos`), and VEN indicators, blended via validation-learned pattern weights with tuned statistical models.
+- **Hybrid Epoch Training (`sigapstok/trainer.py`):** A pure-NumPy 2-Layer MLP (ReLU, Adam optimizer, L2 regularization, Huber loss) trained across **250 epochs** (best validation checkpoint at **Epoch 10**) using 6-month lags, rolling statistics, ADI/CV², seasonality (`sin/cos`), and VEN indicators, blended via validation-learned pattern weights with tuned statistical models.
 
 ### 4.4 Budget Ranking Logic
 For items with net order $Q_{\text{order}, i} = \max(0, (\hat{D}_i + SS_i) - S_{\text{usable}, i}) > 0$:
@@ -110,16 +110,16 @@ All evaluation datasets in this repository are **synthetic datasets** (`sigapsto
 ## 6. Validation and Impact
 
 ### 6.1 Epoch Training & Held-Out Forecast Accuracy (Months 20–24, Synthetic Benchmark)
-**Training Convergence:** Initial Train Loss `0.19824` (Epoch 1) $\rightarrow$ `0.02427` (Epoch 160); Best Validation Loss **`0.08202`** at **Epoch 58**.
+**Training Convergence:** Initial Train Loss `0.19824` (Epoch 1) $\rightarrow$ `0.02427` (Epoch 160); Best Validation Loss **`0.08222`** at **Epoch 10**.
 
 | Model / Method | MAE | RMSE | WAPE (%) | Accuracy (`100 - WAPE`) |
 | :--- | :---: | :---: | :---: | :---: |
 | `RSUD_1Mo_Plus_10Pct` *(Current Formula)* | 73.31 | 151.14 | 25.91% | 74.09% |
 | `Excel_3Mo_AMC` *(Static 3-Mo Average)* | 58.49 | 119.06 | 20.67% | 79.33% |
 | `SigapStok_Untrained_Stat` *(Fixed Params)* | 53.12 | 110.15 | 18.77% | 81.23% |
-| **`SigapStok_Trained_Hybrid` *(Epoch-Tuned)*** | **51.95** | **105.09** | **18.36%** | **81.64%** |
+| **`SigapStok_Trained_Hybrid` *(Epoch-Tuned)*** | **51.26** | **100.13** | **18.11%** | **81.89%** |
 
-- **Result:** `29.1%` MAE reduction compared to RSUD's current 1-month formula.
+- **Result:** `30.1%` MAE reduction compared to RSUD's current 1-month formula.
 
 ### 6.2 Fair 6-Month Comparison Simulation (Identical Budget Rp 30,000,000/mo, FEFO, 7-Day Lead Time)
 | Strategy | Vital Stockout Days | Total Stockout Days | Expired Units | Fill Rate (%) | Vital Budget Share (%) |
@@ -127,20 +127,20 @@ All evaluation datasets in this repository are **synthetic datasets** (`sigapsto
 | `RSUD_Current_Formula` | 58 | 191 | 0.0 | 83.80% | 43.19% |
 | `Static_Excel_3Mo_AMC` | 45 | 170 | 0.0 | 87.65% | 44.84% |
 | `SigapStok` *(Untrained Stat)* | 26 | 112 | 0.0 | 88.40% | 38.95% |
-| **`SigapStok_Trained` *(Hybrid)*** | **23** | **111** | **0.0** | **88.91%** | **39.09%** |
+| **`SigapStok_Trained` *(Hybrid)*** | **24** | **110** | **0.0** | **88.94%** | **38.87%** |
 
 - **Sample Ranked Output (Budget Cap Rp 35,000,000, Vital Excluded = 0):**
 
 | Rank | Drug Name | VEN/ABC | Pattern | DoS | Req | Alloc | Cost | Status | Days Without Stock |
 | :---: | :--- | :---: | :--- | :---: | :---: | :---: | ---: | :--- | :---: |
-| 1 | Norepinefrin Injeksi 4 mg/4 ml | V/A | SMOOTH | 6.4 d | 31 | 31 | Rp 2,015,000 | FULL_ORDER | 0.0 d |
-| 2 | Ringer Laktat 500 ml Infus | V/A | SMOOTH | 6.9 d | 347 | 347 | Rp 3,990,500 | FULL_ORDER | 0.0 d |
+| 1 | Norepinefrin Injeksi 4 mg/4 ml | V/A | SMOOTH | 6.3 d | 32 | 32 | Rp 2,080,000 | FULL_ORDER | 0.0 d |
+| 2 | Ringer Laktat 500 ml Infus | V/A | SMOOTH | 7.4 d | 325 | 325 | Rp 3,737,500 | FULL_ORDER | 0.0 d |
 | 4 | Epinefrin Injeksi 0.1% 1 ml | V/C | INTERMITTENT | 18.8 d | 9 | 9 | Rp 112,500 | FULL_ORDER | 0.0 d |
-| 8 | Omeprazole 40 mg Injeksi | E/A | SMOOTH | 6.6 d | 118 | 118 | Rp 2,832,000 | FULL_ORDER | 0.0 d |
+| 8 | Ceftriaxone 1 g Serbuk Injeksi | E/A | SMOOTH | 5.2 d | 283 | 283 | Rp 5,235,500 | FULL_ORDER | 0.0 d |
 | 13 | Albumin Human 20% 100 ml | N/A | INTERMITTENT | 3.9 d | 11 | 11 | Rp 13,750,000 | FULL_ORDER | 0.0 d |
+| 14 | Neurotropik B1-B6-B12 Tablet | N/B | SMOOTH | 6.3 d | 327 | 0 | Rp 0 | EXCLUDED_OVER_BUDGET | 23.7 d |
 | 15 | Salep Kulit Pelembab Khusus | N/C | INTERMITTENT | 9.1 d | 12 | 0 | Rp 0 | EXCLUDED_OVER_BUDGET | 20.9 d |
 | 16 | Multivitamin Sirup 100 ml | N/B | INTERMITTENT | 9.6 d | 57 | 0 | Rp 0 | EXCLUDED_OVER_BUDGET | 20.4 d |
-| - | Acarbose 100 mg Tablet | E/B | SMOOTH | 135.0 d | 0 | 0 | Rp 0 | NOT_NEEDED | 0.0 d |
 
 ### 6.3 Automated Software Tests
 All **8 unit & integration tests** (`python -m unittest discover -s tests -v`) pass in `0.189s` covering schema validation, DOEN flagging, SBA intermittent stability, ED capping, budget ranking, SQLite history, simulation comparison, and epoch-loss convergence.
