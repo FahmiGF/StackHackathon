@@ -16,6 +16,7 @@ from sigapstok.forecasting import (
 from sigapstok.ingestion import ColumnValidationError, validate_price_ven_df, validate_usage_stock_df
 from sigapstok.ranking import rank_and_allocate_budget
 from sigapstok.simulation import run_fair_comparison_simulation
+from sigapstok.trainer import train_and_evaluate_models
 
 
 class TestSigapStok(unittest.TestCase):
@@ -120,6 +121,13 @@ class TestSigapStok(unittest.TestCase):
             by_name["SigapStok"]["vital_stockout_days"],
             by_name["RSUD_Current_Formula"]["vital_stockout_days"],
         )
+
+    def test_epoch_training_reduces_loss_and_beats_baseline_mae(self) -> None:
+        summary = train_and_evaluate_models(epochs=100, seed=42)
+        self.assertLess(summary.final_train_loss, summary.epoch_history[0]["train_loss"])
+        hybrid_mae = summary.test_metrics["SigapStok_Trained_Hybrid"]["MAE"]
+        rsud_mae = summary.test_metrics["RSUD_1Mo_Plus_10Pct"]["MAE"]
+        self.assertLess(hybrid_mae, rsud_mae)
 
 
 if __name__ == "__main__":

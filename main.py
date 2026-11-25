@@ -1,29 +1,28 @@
-"""CLI entrypoint for SigapStok forecasting, budget ranking, and fair comparison simulation."""
+"""CLI entrypoint for SigapStok forecasting, training, budget ranking, simulation, and reporting."""
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from sigapstok.db import Database
 from sigapstok.forecasting import run_forecast_batch
 from sigapstok.ingestion import compute_ed_months_remaining, load_and_inspect_files
 from sigapstok.ranking import rank_and_allocate_budget, render_one_page_report
+from sigapstok.report_builder import build_full_laporan
 from sigapstok.simulation import run_fair_comparison_simulation
 from sigapstok.synthetic_data import export_synthetic_excel_inputs
+from sigapstok.trainer import train_and_evaluate_models
 
 
-def cmd_demo(args: argparse.Namespace) -> None:
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    db = Database(out_dir / "sigapstok.db")
-
+def _prepare_demo_items(out_dir: Path, budget: float, db: Database) -> tuple[int, list[dict]]:
     usage_path, price_path = export_synthetic_excel_inputs(out_dir)
     report = load_and_inspect_files(usage_path, price_path)
 
     batch_id = db.create_upload_batch(
         period_label="2026-10",
-        budget_limit=args.budget,
+        budget_limit=budget,
         usage_filename=usage_path.name,
         price_filename=price_path.name,
         row_count_usage=len(report.usage_df),
@@ -64,8 +63,21 @@ def cmd_demo(args: argparse.Namespace) -> None:
                 "min_standby_qty": float(row.get("min_standby_qty", 0.0)),
             }
         )
+    return batch_id, items
 
-    forecasts = run_forecast_batch(items)
+
+def cmd_demo(args: argparse.Namespace) -> None:
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    db = Database(out_dir / "sigapstok.db")
+
+    artifact = None
+    model_path = Path(args.model_path)
+    if model_path.exists():
+        artifact = json.loads(model_path.read_text(encoding="utf-8"))
+
+    batch_id, items = _prepare_demo_items(out_dir, args.budget, db)
+    forecasts = run_forecast_batch(items, trained_artifact=artifact)
     for f in forecasts:
         db.save_forecast_result(batch_id, f.__dict__)
 
@@ -80,8 +92,32 @@ def cmd_demo(args: argparse.Namespace) -> None:
     db.close()
 
 
+def cmd_train(args: argparse.Namespace) -> None:
+    artifact_path = Path(args.model_path)
+    summary = train_and_evaluate_models(epochs=args.epochs, save_artifact_path=artifact_path)
+    print(f"=== Epoch Training Complete ({summary.epochs} epochs, best epoch: {summary.best_epoch}) ===")
+    for e in summary.epoch_history:
+        print(f"Epoch {e['epoch']:3d} | train_loss: {e['train_loss']:.5f} | val_loss: {e['val_loss']:.5f}")
+    print("\n=== Held-Out Test Set Accuracy (Months 20-24) ===")
+    for name, m in summary.test_metrics.items():
+        print(
+            f"- {name:26s} | MAE: {m['MAE']:6.2f} | RMSE: {m['RMSE']:6.2f} | "
+            f"sMAPE: {m['sMAPE_pct']:5.2f}% | Accuracy: {m['Accuracy_pct']:5.2f}%"
+        )
+    print(f"\n[Saved Model Artifact] {artifact_path}")
+
+
 def cmd_simulate(args: argparse.Namespace) -> None:
-    results = run_fair_comparison_simulation(monthly_budget_cap=args.budget, num_months=args.months)
+    artifact = None
+    model_path = Path(args.model_path)
+    if model_path.exists():
+        artifact = json.loads(model_path.read_text(encoding="utf-8"))
+
+    results = run_fair_comparison_simulation(
+        monthly_budget_cap=args.budget,
+        num_months=args.months,
+        trained_artifact=artifact,
+    )
     print("=== Simulasi Perbandingan Adil (Anggaran & Permintaan Identik) ===")
     print(f"Budget Cap: Rp {args.budget:,.0f}/bulan | Durasi: {args.months} bulan\n")
     for r in results:
@@ -92,19 +128,89 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         )
 
 
+def cmd_report(args: argparse.Namespace) -> None:
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model_path = Path(args.model_path)
+
+    # 1. Train & save model artifact
+    training = train_and_evaluate_models(epochs=args.epochs, save_artifact_path=model_path)
+    artifact = json.loads(model_path.read_text(encoding="utf-8"))
+
+    # 2. Run ranking demo with trained model
+    db = Database(out_dir / "sigapstok.db")
+    batch_id, items = _prepare_demo_items(out_dir, args.demo_budget, db)
+    forecasts = run_forecast_batch(items, trained_artifact=artifact)
+    for f in forecasts:
+        db.save_forecast_result(batch_id, f.__dict__)
+    ranked, budget_summary = rank_and_allocate_budget(forecasts, budget_limit=args.demo_budget)
+    db.save_ranking_results(batch_id, [r.__dict__ for r in ranked])
+
+    # 3. Run fair simulation across all 4 strategies
+    sim_results = run_fair_comparison_simulation(
+        monthly_budget_cap=args.sim_budget,
+        num_months=args.months,
+        trained_artifact=artifact,
+    )
+    for sr in sim_results:
+        db.save_simulation_run("Laporan_6Mo_Comparison", args.months, args.sim_budget, sr)
+    db.close()
+
+    # 4. Generate complete Laporan Markdown
+    laporan_text = build_full_laporan(
+        training=training,
+        sim_results=sim_results,
+        ranked_rows=ranked,
+        budget_summary=budget_summary,
+        budget_cap_sim=args.sim_budget,
+        sim_months=args.months,
+    )
+    laporan_path = Path(args.laporan_path)
+    laporan_path.parent.mkdir(parents=True, exist_ok=True)
+    laporan_path.write_text(laporan_text, encoding="utf-8")
+    print(f"[Generated Laporan] {laporan_path}")
+    print(f"[Saved Model]       {model_path}")
+    print("\n--- Test Set Accuracy Summary ---")
+    for name, m in training.test_metrics.items():
+        print(f"  {name:26s} -> MAE: {m['MAE']:6.2f} | Accuracy: {m['Accuracy_pct']:5.2f}%")
+    print("\n--- Simulation Summary ---")
+    for r in sim_results:
+        print(
+            f"  {r['strategy_name']:22s} -> Vital Stockout: {r['vital_stockout_days']:3d}d | "
+            f"Total Stockout: {r['total_stockout_days']:3d}d | Fill Rate: {r['fill_rate_pct']:6.2f}%"
+        )
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SigapStok Pharmacy Forecasting & Budget Ranking CLI")
+    parser = argparse.ArgumentParser(description="SigapStok Pharmacy Forecasting, Training & Budget Ranking CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_demo = sub.add_parser("demo", help="Run synthetic ingestion, forecasting, DB storage, and ranking report")
-    p_demo.add_argument("--budget", type=float, default=35_000_000.0, help="Monthly budget cap in IDR")
-    p_demo.add_argument("--output-dir", default="output", help="Directory for sample Excel, DB, and report")
+    p_demo.add_argument("--budget", type=float, default=35_000_000.0)
+    p_demo.add_argument("--output-dir", default="output")
+    p_demo.add_argument("--model-path", default="models/sigapstok_hybrid.json")
     p_demo.set_defaults(func=cmd_demo)
 
+    p_train = sub.add_parser("train", help="Run epoch training and evaluate held-out forecast accuracy")
+    p_train.add_argument("--epochs", type=int, default=160)
+    p_train.add_argument("--model-path", default="models/sigapstok_hybrid.json")
+    p_train.set_defaults(func=cmd_train)
+
     p_sim = sub.add_parser("simulate", help="Run fair 6-month comparison simulation")
-    p_sim.add_argument("--budget", type=float, default=35_000_000.0, help="Monthly budget cap in IDR")
-    p_sim.add_argument("--months", type=int, default=6, help="Number of simulated months")
+    p_sim.add_argument("--budget", type=float, default=30_000_000.0)
+    p_sim.add_argument("--months", type=int, default=6)
+    p_sim.add_argument("--model-path", default="models/sigapstok_hybrid.json")
     p_sim.set_defaults(func=cmd_simulate)
+
+    p_rep = sub.add_parser("report", help="Train model, run simulation, and write full LAPORAN_SIGAPSTOK.md")
+    p_rep.add_argument("--epochs", type=int, default=160)
+    p_rep.add_argument("--demo-budget", type=float, default=35_000_000.0)
+    p_rep.add_argument("--sim-budget", type=float, default=30_000_000.0)
+    p_rep.add_argument("--months", type=int, default=6)
+    p_rep.add_argument("--output-dir", default="output")
+    p_rep.add_argument("--model-path", default="models/sigapstok_hybrid.json")
+    p_rep.add_argument("--laporan-path", default="docs/LAPORAN_SIGAPSTOK.md")
+    p_rep.set_defaults(func=cmd_report)
 
     args = parser.parse_args()
     args.func(args)

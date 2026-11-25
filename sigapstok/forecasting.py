@@ -235,13 +235,21 @@ def run_forecast_batch(
     items: list[dict],
     lead_time_days: float = 10.0,
     cycle_days: int = 30,
+    trained_artifact: Optional[dict] = None,
+    target_month_idx: int = 12,
 ) -> list[ForecastItemResult]:
     """
     Execute full pattern-matched forecasting, ABC/XYZ/FSN/VEN classification,
     and ED-usable stock subtraction for all items in a batch.
+    If trained_artifact is provided, blends statistical estimates with the epoch-trained MLP.
     """
     preliminary: list[dict] = []
     annual_values: dict[int, float] = {}
+
+    predictor = None
+    if trained_artifact is not None:
+        from sigapstok.trainer import predict_with_trained_artifact
+        predictor = predict_with_trained_artifact
 
     for item in items:
         drug_id = int(item["drug_id"])
@@ -256,6 +264,16 @@ def run_forecast_batch(
             min_standby_qty=min_standby,
             lead_time_days=lead_time_days,
         )
+        if predictor is not None:
+            _, hybrid_qty = predictor(trained_artifact, history, target_month_idx, ven)
+            forecast_qty = hybrid_qty
+            method = f"Trained Hybrid ({method})"
+            if ven == "V":
+                non_zero = [x for x in history if x > 0]
+                typical_event = (sum(non_zero) / len(non_zero)) if non_zero else 0.0
+                vital_floor = max(min_standby, typical_event)
+                if forecast_qty + safety_stock < vital_floor:
+                    safety_stock = max(safety_stock, round(vital_floor - forecast_qty, 2))
         xyz = classify_xyz(history)
         fsn = classify_fsn(history, adi)
 

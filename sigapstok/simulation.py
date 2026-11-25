@@ -52,6 +52,7 @@ def _simulate_strategy(
     monthly_budget_cap: float,
     num_months: int = 6,
     lead_time_days: int = 7,
+    trained_artifact: dict | None = None,
 ) -> dict:
     """Run one inventory strategy over identical demand stream, budget cap, lead time, and FEFO expiry."""
     total_days = num_months * 30
@@ -137,7 +138,7 @@ def _simulate_strategy(
                         orders_to_place[name] = req
                         rem -= cost
 
-            elif strategy_name == "SigapStok":
+            elif strategy_name in ("SigapStok", "SigapStok_Trained"):
                 batch_items = []
                 for idx, s in enumerate(skus, start=1):
                     name = s["name"]
@@ -155,7 +156,14 @@ def _simulate_strategy(
                             "min_standby_qty": s["standby"],
                         }
                     )
-                forecasts: list[ForecastItemResult] = run_forecast_batch(batch_items, lead_time_days=lead_time_days)
+                art = trained_artifact if strategy_name == "SigapStok_Trained" else None
+                month_idx = 12 + (day // 30)
+                forecasts: list[ForecastItemResult] = run_forecast_batch(
+                    batch_items,
+                    lead_time_days=lead_time_days,
+                    trained_artifact=art,
+                    target_month_idx=month_idx,
+                )
                 ranked, _ = rank_and_allocate_budget(forecasts, budget_limit=monthly_budget_cap)
                 for r in ranked:
                     if r.allocated_qty > 0:
@@ -213,11 +221,14 @@ def run_fair_comparison_simulation(
     monthly_budget_cap: float = 35_000_000.0,
     num_months: int = 6,
     seed: int = 42,
+    trained_artifact: dict | None = None,
 ) -> list[dict]:
-    """Compare RSUD formula, Static Excel 3-mo AMC, and SigapStok under identical constraints."""
+    """Compare RSUD formula, Static Excel 3-mo AMC, SigapStok Stat, and SigapStok Trained under identical constraints."""
     skus = build_synthetic_rsud_skus(seed=seed)
     demand_stream = _generate_daily_demand_stream(skus, num_months=num_months, seed=seed + 100)
     strategies = ["RSUD_Current_Formula", "Static_Excel_3Mo_AMC", "SigapStok"]
+    if trained_artifact is not None:
+        strategies.append("SigapStok_Trained")
     return [
         _simulate_strategy(
             strategy_name=st,
@@ -225,6 +236,7 @@ def run_fair_comparison_simulation(
             demand_stream=demand_stream,
             monthly_budget_cap=monthly_budget_cap,
             num_months=num_months,
+            trained_artifact=trained_artifact,
         )
         for st in strategies
     ]

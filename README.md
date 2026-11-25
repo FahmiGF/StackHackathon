@@ -58,10 +58,16 @@ pip install -r requirements.txt
 # 2. Jalankan demo end-to-end (buat data sintetis Excel, simpan ke DB, cetak laporan ranking)
 python main.py demo --budget 35000000
 
-# 3. Jalankan simulasi perbandingan adil 6 bulan
+# 3. Latih model (epoch training + optimasi parameter) dan evaluasi akurasi
+python main.py train --epochs 160
+
+# 4. Jalankan simulasi perbandingan adil 6 bulan
 python main.py simulate --budget 30000000 --months 6
 
-# 4. Jalankan unit tests
+# 5. Hasilkan Laporan Lengkap (docs/LAPORAN_SIGAPSTOK.md) beserta artefak model terlatih
+python main.py report --epochs 160 --months 6
+
+# 6. Jalankan unit tests
 python -m unittest discover -s tests -v
 ```
 
