@@ -1,86 +1,95 @@
-# SigapStok — Adaptive Pharmacy Demand Forecasting & Budget Ranking
+# SigapStok — Pattern-Matched Pharmacy Demand Forecasting & Vital-First Budget Ranking
 
-**SigapStok** adalah prototipe sistem perencanaan kebutuhan obat dan pemeringkatan anggaran pengadaan farmasi untuk rumah sakit (studi kasus **RSUD Kilisuci, Kota Kediri**). Aplikasi ini menggantikan rumus pemesanan tunggal berbasis 1 bulan pemakaian dengan peramalan berbasis pola permintaan (*pattern-matched forecasting*), koreksi stok layak pakai berbasis tanggal kedaluwarsa (*ED-capping*), serta pemeringkatan anggaran berorientasi keselamatan pasien (**Vital-first**).
+**STACK 2026 (GDGoC ITB) — Case 2: Stronger Communities and Everyday Services**
 
----
-
-## Fitur Utama & Alur Kerja
-1. **Unggah & Inspeksi Kolom Otomatis (`sigapstok/ingestion.py`):**
-   - Mendukung file ekspor `.xlsx` dan `.csv` untuk data pemakaian/stok fisik/tanggal ED serta daftar harga/DOEN/VEN.
-   - Validasi skema kolom otomatis, deteksi nilai negatif/format tanggal ED rusak, serta saran awal status **VEN** berbasis pencocokan **DOEN** untuk dikonfirmasi tim farmasi.
-2. **Penyimpanan Riwayat Relasional (`sigapstok/schema.sql`, `sigapstok/db.py`):**
-   - Menyimpan master obat, riwayat unggahan (`upload_batches`), deret waktu pemakaian bulanan (`monthly_usage_history`), snapshot stok layak pakai & proyeksi ED (`stock_batches_ed`), hasil peramalan (`forecast_results`), penyesuaian manual beserta alasannya, hingga hasil peringkat anggaran (`budget_ranking_results`).
-3. **Klasifikasi Pola Permintaan & Inventori (`sigapstok/forecasting.py`):**
-   - **ADI & CV² (Syntetos–Boylan):** Mengklasifikasikan setiap SKU ke dalam pola **Smooth**, **Erratic**, **Intermittent**, atau **Lumpy**.
-   - **Metode Peramalan Adaptif:**
-     - `SMOOTH` → *Simple Exponential Smoothing (SES)*
-     - `ERRATIC` → *Damped Holt's Linear Trend*
-     - `INTERMITTENT` / `LUMPY` → **SBA (*Syntetos–Boylan Approximation*)** + *Vital Standby Buffer* agar obat penyelamat nyawa yang jarang dipakai tidak dihitung nol setelah bulan sepi.
-   - **Klasifikasi Logistik Multi-Dimensi:** Menghasilkan kelas **ABC** (nilai investasi Pareto), **XYZ** (konsistensi pemakaian), **FSN** (*Fast/Slow/Non-moving*), dan matriks **ABC–VEN**.
-   - **ED-Adjusted Usable Stock:** Mengurangi stok fisik dengan porsi obat yang diprediksi akan kedaluwarsa sebelum sempat terpakai.
-4. **Pemeringkatan Anggaran & Laporan Satu Halaman (`sigapstok/ranking.py`):**
-   - Mengurutkan usulan pembelian berdasarkan **VEN (`V > E > N`) → Sisa Hari Stok (`days_of_supply`) → Efisiensi Matriks `ABC–VEN`**.
-   - Memberi status `FULL_ORDER`, `PARTIAL_ORDER`, atau `EXCLUDED_OVER_BUDGET` lengkap dengan estimasi **`expected_days_without_stock`** untuk item yang terpotong anggaran.
-5. **Simulasi Perbandingan Adil (`sigapstok/simulation.py`):**
-   - Membandingkan **Rumus RSUD Saat Ini** (`1.10 × bulan lalu - stok`), **Spreadsheet 3-Bulan Statis** (`5 × AMC - usable`), dan **SigapStok** di bawah pagu anggaran, permintaan harian, *lead time*, dan aturan FEFO yang identik.
+**SigapStok** is a Python-based decision-support prototype designed for **RSUD Kilisuci (Kediri City)**. It replaces uniform consumption ordering (`1 month + 10% - stock`) with pattern-matched statistical & epoch-trained hybrid forecasting, expiry-date (*ED*) usable-stock capping, and a transparent **Vital-first** budget ranking engine that quantifies `expected_days_without_stock` for excluded items.
 
 ---
 
-## Struktur Proyek
-```text
-StackHackathon/
-├── main.py                              # CLI demo & simulasi perbandingan
-├── requirements.txt                     # Dependensi Python (pandas, openpyxl)
-├── sigapstok/
-│   ├── schema.sql                       # Skema database relasional
-│   ├── db.py                            # Layer penyimpanan SQLite & riwayat
-│   ├── ingestion.py                     # Unggah file, inspeksi kolom, validasi DOEN/VEN
-│   ├── forecasting.py                   # ADI/CV², SES/Holt/SBA, ABC/XYZ/FSN, ED-capping
-│   ├── ranking.py                       # Logika pemeringkatan anggaran (Bagian 4.4)
-│   ├── synthetic_data.py                # Generator dataset sintetis RSUD Kilisuci
-│   └── simulation.py                    # Simulasi perbandingan adil multi-bulan
-├── docs/
-│   ├── 2.4_existing_alternatives.md     # Kajian Permenkes & perbandingan vs VEN
-│   ├── 4.4_budget_ranking_logic.md      # Spesifikasi logika pemeringkatan anggaran
-│   └── simulation_fairness.md           # Protokol desain simulasi yang adil
-└── tests/
-    └── test_sigapstok.py                # Unit & integration tests
-```
+## 1. Current Scope, Version & Honest Progress Status
+- **Current Version:** `0.2.0` (Semifinal Backend, Forecasting Engine, Epoch Trainer, DB, Simulation & Proposal Build)
+- **Completed Features:**
+  - `.xlsx` / `.csv` spreadsheet upload & column schema validation (`sigapstok/ingestion.py`) with DOEN-assisted VEN suggestions.
+  - SQLite relational schema & full history persistence (`sigapstok/schema.sql`, `sigapstok/db.py`).
+  - Syntetos–Boylan (`ADI/CV²`) pattern classification + `SES`, `Damped Holt`, `SBA` + **160-epoch Hybrid MLP** (`sigapstok/forecasting.py`, `sigapstok/trainer.py`).
+  - `ABC`, `XYZ`, `FSN`, `ABC–VEN` classification and ED-adjusted usable stock capping.
+  - Vital-first budget ranking engine & one-page report generator (`sigapstok/ranking.py`).
+  - Fair 6-month comparison simulation under identical budget, demand, lead time, and FEFO expiry rules (`sigapstok/simulation.py`).
+- **Simulated / Unfinished Functionality (Planned for Product Improvement & Final Day):**
+  - All evaluations currently use **synthetic multi-month datasets** (`sigapstok/synthetic_data.py`) mimicking RSUD Kilisuci exports without patient records.
+  - The interactive **Web UI (FastAPI + browser upload/ranking dashboard)** is planned for the Product Improvement phase (7–16 Dec 2026) and Final Day (19 Dec 2026).
 
 ---
 
-## Instalasi & Cara Menjalankan
+## 2. Setup, Dependencies & Supported Environment
+- **Supported Environment:** Python `3.11+` (tested on Python `3.11.9`, Windows 11).
+- **Dependencies:** `numpy`, `pandas`, `openpyxl`, plus Python standard library (`sqlite3`, `unittest`).
 
 ```bash
-# 1. Instal dependensi
+# 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Jalankan demo end-to-end (buat data sintetis Excel, simpan ke DB, cetak laporan ranking)
-python main.py demo --budget 35000000
-
-# 3. Latih model (epoch training + optimasi parameter) dan evaluasi akurasi
+# 2. Run 160-epoch model training & held-out accuracy evaluation
 python main.py train --epochs 160
 
-# 4. Jalankan simulasi perbandingan adil 6 bulan
+# 3. Run synthetic end-to-end ingestion, DB storage & one-page ranking demo
+python main.py demo --budget 35000000
+
+# 4. Run 6-month fair comparison simulation across all strategies
 python main.py simulate --budget 30000000 --months 6
 
-# 5. Hasilkan Laporan Lengkap (docs/LAPORAN_SIGAPSTOK.md) beserta artefak model terlatih
+# 5. Generate STACK 2026 Semifinal Proposal (MD + A4 HTML) & Technical Report
 python main.py report --epochs 160 --months 6
 
-# 6. Jalankan unit tests
+# 6. Run automated test suite (8/8 tests)
 python -m unittest discover -s tests -v
 ```
 
 ---
 
-## Bagian 7 · Daftar Referensi & Resource (*References & Resources*)
+## 3. Repository Structure
+```text
+StackHackathon/
+├── main.py                                 # CLI: demo, train, simulate, report
+├── requirements.txt                        # Python dependencies
+├── models/
+│   └── sigapstok_hybrid.json               # Saved epoch-trained MLP & tuned stat weights
+├── sigapstok/
+│   ├── schema.sql                          # Relational SQLite schema
+│   ├── db.py                               # History & batch persistence layer
+│   ├── ingestion.py                        # File upload, column validation, DOEN/VEN check
+│   ├── forecasting.py                      # ADI/CV², SES/Holt/SBA, ABC/XYZ/FSN, ED-capping
+│   ├── trainer.py                          # 160-epoch NumPy MLP + parameter tuning
+│   ├── ranking.py                          # Section 4.4 Vital-first budget ranking logic
+│   ├── synthetic_data.py                   # Synthetic RSUD Kilisuci dataset generator
+│   ├── simulation.py                       # Fair 6-month FEFO comparison simulation
+│   └── report_builder.py                   # STACK 2026 Proposal & Laporan builder
+├── docs/
+│   ├── STACK2026_SEMIFINAL_PROPOSAL.md     # English Semifinal Proposal (STACK 2026 format)
+│   ├── STACK2026_SEMIFINAL_PROPOSAL.pdf    # Print-ready A4 PDF (max 10 content pages)
+│   ├── LAPORAN_SIGAPSTOK.md                # Technical summary report (Indonesian)
+│   ├── 2.4_existing_alternatives.md        # Permenkes 72/2016 & SigapStok vs VEN analysis
+│   ├── 4.4_budget_ranking_logic.md         # Budget ranking specification
+│   └── simulation_fairness.md              # Fair comparison agreement
+└── tests/
+    └── test_sigapstok.py                   # Unit & integration test suite
+```
 
-1. **[1] Wawancara Tim dengan Kepala Instalasi Farmasi RSUD Kilisuci, Kota Kediri** (9–10 November 2026) — dokumentasi alur perencanaan konsumsi bulanan (cadangan 10%), mekanisme pemesanan e-Katalog per item, kendala kekosongan akibat estimasi kebutuhan & keterbatasan anggaran, serta kebijakan layanan obat JKN.
-2. **[2] Kementerian Kesehatan Republik Indonesia (2016).** *Peraturan Menteri Kesehatan RI Nomor 72 Tahun 2016 tentang Standar Pelayanan Kefarmasian di Rumah Sakit.* — Landasan metode konsumsi, epidemiologi, kombinasi, serta pengendalian prioritas **ABC** dan **VEN**.
-3. **[3] Studi Perencanaan Obat di Rumah Sakit Padang.** — Temuan bahwa perencanaan berbasis konsumsi semata rentan melewatkan lonjakan pasien baru dan berkorelasi dengan terjadinya obat kedaluwarsa.
-4. **[4] Regulasi Jaminan Kesehatan Nasional (JKN / BPJS Kesehatan) & Formularium Nasional (FORNAS) / DOEN.** — Kebijakan bahwa obat peserta JKN disediakan dalam paket layanan rumah sakit (tidak mengganti pembelian tunai pasien di luar).
-5. **[5] Lembaga Kebijakan Pengadaan Barang/Jasa Pemerintah (LKPP) — e-Katalog Obat.** — Mekanisme pengadaan elektronik pemerintah untuk fasilitas kesehatan publik.
-6. **[6] Studi Peramalan Permintaan Obat Sporadis di Rumah Sakit Komunitas Thailand.** — Bukti empiris bahwa tidak ada satu metode forecasting tunggal yang optimal untuk seluruh item farmasi berpermintaan sporadis, dan obat *vital* harus selalu dipastikan ketersediaannya (*Syntetos–Boylan / Croston framework*).
-7. **Referensi Metodologi Teknis:**
-   - Syntetos, A. A., & Boylan, J. E. (2005). *The accuracy of intermittent demand estimates.* International Journal of Forecasting (klasifikasi **ADI/CV²** dan estimator **SBA**).
-   - Kementerian Kesehatan RI — *Daftar Obat Esensial Nasional (DOEN)* sebagai acuan pencocokan zat aktif esensial/vital.
+---
+
+## 4. Third-Party Resources & Material AI Assistance Disclosure
+- **Third-Party Libraries:** `numpy`, `pandas`, `openpyxl`, Python standard library (`sqlite3`, `unittest`).
+- **Material AI Assistance Disclosure (Per STACK 2026 Handbook Rules):**
+  - **Tool Used:** Antigravity / Gemini AI Coding Assistant.
+  - **Role:** Assisted in structuring the modular Python codebase, implementing the pure-NumPy MLP epoch trainer and FEFO simulation harness, drafting documentation/proposal structure, and verifying automated tests. All domain rules (Permenkes/VEN/DOEN), mathematical formulations, simulation fairness criteria, and code outputs were reviewed, executed, and validated by the team.
+
+---
+
+## 5. Section 7 — References & Resources
+1. **[1]** Team interview with the Head of Pharmacy, RSUD Kilisuci, Kediri City, 9–10 November 2026.
+2. **[2]** Ministry of Health RI (2016). *Permenkes RI No. 72 Tahun 2016 on Hospital Pharmacy Service Standards.*
+3. **[3]** Padang Hospital Drug Planning Study on consumption-based forecasting limitations and expired inventory.
+4. **[4]** National Health Insurance (*JKN / BPJS Kesehatan*) drug service rules & DOEN / FORNAS.
+5. **[5]** LKPP Electronic Catalogue (*e-Katalog Obat*) public procurement portal.
+6. **[6]** Thai Community Hospital Study on sporadic-demand forecasting and vital drug availability.
+7. **[7]** Syntetos, A. A., & Boylan, J. E. (2005). *The accuracy of intermittent demand estimates.* International Journal of Forecasting.

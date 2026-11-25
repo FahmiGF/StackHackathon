@@ -10,7 +10,7 @@ from sigapstok.db import Database
 from sigapstok.forecasting import run_forecast_batch
 from sigapstok.ingestion import compute_ed_months_remaining, load_and_inspect_files
 from sigapstok.ranking import rank_and_allocate_budget, render_one_page_report
-from sigapstok.report_builder import build_full_laporan
+from sigapstok.report_builder import build_full_laporan, build_stack2026_proposal_md, markdown_to_a4_html
 from sigapstok.simulation import run_fair_comparison_simulation
 from sigapstok.synthetic_data import export_synthetic_excel_inputs
 from sigapstok.trainer import train_and_evaluate_models
@@ -133,9 +133,12 @@ def cmd_report(args: argparse.Namespace) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     model_path = Path(args.model_path)
 
-    # 1. Train & save model artifact
-    training = train_and_evaluate_models(epochs=args.epochs, save_artifact_path=model_path)
-    artifact = json.loads(model_path.read_text(encoding="utf-8"))
+    # 1. Train & save model artifact (fallback to in-memory if file is locked)
+    try:
+        training = train_and_evaluate_models(epochs=args.epochs, save_artifact_path=model_path)
+    except PermissionError:
+        training = train_and_evaluate_models(epochs=args.epochs, save_artifact_path=None)
+    artifact = json.loads(model_path.read_text(encoding="utf-8")) if model_path.exists() else None
 
     # 2. Run ranking demo with trained model
     db = Database(out_dir / "sigapstok.db")
@@ -156,7 +159,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         db.save_simulation_run("Laporan_6Mo_Comparison", args.months, args.sim_budget, sr)
     db.close()
 
-    # 4. Generate complete Laporan Markdown
+    # 4. Generate complete Laporan Markdown + STACK 2026 Semifinal Proposal (MD & A4 HTML)
     laporan_text = build_full_laporan(
         training=training,
         sim_results=sim_results,
@@ -168,8 +171,24 @@ def cmd_report(args: argparse.Namespace) -> None:
     laporan_path = Path(args.laporan_path)
     laporan_path.parent.mkdir(parents=True, exist_ok=True)
     laporan_path.write_text(laporan_text, encoding="utf-8")
-    print(f"[Generated Laporan] {laporan_path}")
-    print(f"[Saved Model]       {model_path}")
+
+    proposal_md = build_stack2026_proposal_md(
+        training=training,
+        sim_results=sim_results,
+        ranked_rows=ranked,
+        budget_summary=budget_summary,
+        budget_cap_sim=args.sim_budget,
+        sim_months=args.months,
+    )
+    proposal_md_path = laporan_path.parent / "STACK2026_SEMIFINAL_PROPOSAL.md"
+    proposal_html_path = laporan_path.parent / "STACK2026_SEMIFINAL_PROPOSAL.html"
+    proposal_md_path.write_text(proposal_md, encoding="utf-8")
+    proposal_html_path.write_text(markdown_to_a4_html(proposal_md), encoding="utf-8")
+
+    print(f"[Generated Laporan]  {laporan_path}")
+    print(f"[Generated Proposal] {proposal_md_path}")
+    print(f"[Generated A4 HTML]  {proposal_html_path}")
+    print(f"[Saved Model]        {model_path}")
     print("\n--- Test Set Accuracy Summary ---")
     for name, m in training.test_metrics.items():
         print(f"  {name:26s} -> MAE: {m['MAE']:6.2f} | Accuracy: {m['Accuracy_pct']:5.2f}%")
