@@ -29,8 +29,9 @@ class AppState:
     """In-memory + SQLite-backed state for the active warehouse planning cycle."""
 
     def __init__(self, db_path: Path | None = None) -> None:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self.db = Database(db_path or (DATA_DIR / "sigapstok_web.db"))
+        self.data_dir = db_path.parent if db_path else DATA_DIR
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.db = Database(db_path or (self.data_dir / "sigapstok_web.db"))
         self.batch_id: int | None = None
         self.items: list[dict[str, Any]] = []
         self.forecasts: list[ForecastItemResult] = []
@@ -104,7 +105,7 @@ class AppState:
         return self.get_dashboard_payload()
 
     def load_synthetic_demo(self, budget_limit: float = 35_000_000.0) -> dict[str, Any]:
-        usage_path, price_path = export_synthetic_excel_inputs(DATA_DIR)
+        usage_path, price_path = export_synthetic_excel_inputs(self.data_dir)
         return self.load_from_files(usage_path, price_path, budget_limit=budget_limit)
 
     def adjust_quantity(self, drug_id: int, new_qty: float, reason: str) -> dict[str, Any]:
