@@ -7,17 +7,22 @@
 ---
 
 ## 1. Current Scope, Version & Honest Progress Status
-- **Current Version:** `0.2.0` (Semifinal Backend, Forecasting Engine, Epoch Trainer, DB, Simulation & Proposal Build)
+- **Current Version:** `1.0.0` (Final Phase Build: Working Web App, Forecasting Engine, Epoch Trainer, DB, Simulation & Presentation Deck)
 - **Completed Features:**
+  - Interactive **Web Application** (`web_app.py` at `http://127.0.0.1:8000`) supporting `.xlsx`/`.csv` upload, 1-click RSUD demo load, VEN confirmation, manual quantity overrides with audit reasons, interactive budget slider, printable one-page ranking, and CSV export.
   - `.xlsx` / `.csv` spreadsheet upload & column schema validation (`sigapstok/ingestion.py`) with DOEN-assisted VEN suggestions.
   - SQLite relational schema & full history persistence (`sigapstok/schema.sql`, `sigapstok/db.py`).
   - Syntetos–Boylan (`ADI/CV²`) pattern classification + `SES`, `Damped Holt`, `SBA` + **160-epoch Hybrid MLP** (`sigapstok/forecasting.py`, `sigapstok/trainer.py`).
   - `ABC`, `XYZ`, `FSN`, `ABC–VEN` classification and ED-adjusted usable stock capping.
   - Vital-first budget ranking engine & one-page report generator (`sigapstok/ranking.py`).
   - Fair 6-month comparison simulation under identical budget, demand, lead time, and FEFO expiry rules (`sigapstok/simulation.py`).
-- **Simulated / Unfinished Functionality (Planned for Product Improvement & Final Day):**
+- **Simulated Functionality:**
   - All evaluations currently use **synthetic multi-month datasets** (`sigapstok/synthetic_data.py`) mimicking RSUD Kilisuci exports without patient records.
-  - The interactive **Web UI (FastAPI + browser upload/ranking dashboard)** is planned for the Product Improvement phase (7–16 Dec 2026) and Final Day (19 Dec 2026).
+- **Run the Web Application:**
+  ```bash
+  python web_app.py
+  # Open http://127.0.0.1:8000
+  ```
 
 ---
 

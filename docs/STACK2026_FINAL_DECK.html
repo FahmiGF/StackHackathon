@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>SigapStok — STACK 2026 Final Presentation Deck</title>
+<style>
+  @page { size: 1280px 720px; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; color: #1e293b; background: #fff; }
+  .slide {
+    width: 1280px; height: 720px; padding: 48px 64px;
+    page-break-after: always; position: relative; display: flex; flex-direction: column; justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .slide:last-child { page-break-after: auto; }
+  .cover { background: linear-gradient(135deg, #0f4c81 0%, #1e3a5f 100%); color: #fff; justify-content: center; }
+  .cover h1 { font-size: 54px; margin: 0 0 12px; }
+  .cover p { font-size: 22px; opacity: 0.92; margin: 6px 0; }
+  h2 { font-size: 32px; color: #0f4c81; margin: 0 0 18px; border-bottom: 3px solid #0ea5e9; padding-bottom: 8px; }
+  h3 { font-size: 20px; color: #0f4c81; margin: 0 0 8px; }
+  p, li { font-size: 18px; line-height: 1.45; }
+  ul { margin: 8px 0; padding-left: 24px; }
+  li { margin-bottom: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; flex: 1; align-items: start; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; flex: 1; align-items: start; }
+  .box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 20px; }
+  .kpi { font-size: 38px; font-weight: 800; color: #0f4c81; }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; margin-top: 8px; }
+  th, td { border: 1px solid #cbd5e1; padding: 9px 12px; text-align: left; }
+  th { background: #e8f1f8; color: #0f4c81; }
+  .footer { display: flex; justify-content: space-between; font-size: 13px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+  .tag { display: inline-block; background: #0ea5e9; color: #fff; padding: 4px 12px; border-radius: 16px; font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<div class="slide cover">
+  <div>
+    <span class="tag">STACK 2026 · GDGoC ITB · Case 2: Stronger Communities & Everyday Services</span>
+    <h1>SigapStok</h1>
+    <p>Pattern-Matched Pharmacy Demand Forecasting &amp; Vital-First Budget Ranking</p>
+    <p style="margin-top:28px; font-size:18px; opacity:0.85;">Case Study: RSUD Kilisuci Public Hospital, Kediri City | Team: [Team Name] | Repo: github.com/FahmiGF/StackHackathon</p>
+  </div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>1. Team &amp; Selected Case</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>Case 2: Stronger Communities &amp; Everyday Services</h3>
+        <ul>
+          <li>Addresses manual inventory records and operational bottlenecks in public hospital pharmacy planning.</li>
+          <li>Improves service reliability, reduces stockouts, and protects patient access to life-saving medicines.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Team Roles &amp; Contributions</h3>
+        <ul>
+          <li><strong>Fahmi (FahmiGF):</strong> Relational DB, upload &amp; column inspection, forecasting &amp; epoch trainer, Section 4.4 ranking, Web App, simulation &amp; docs.</li>
+          <li><strong>Member B:</strong> Fair simulation co-design &amp; synthetic calibration.</li>
+          <li><strong>Member C / D:</strong> UI usability review, domain validation, pitch &amp; video.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 1 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>2. Problem &amp; Field Evidence (RSUD Kilisuci)</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>The Core Problem</h3>
+        <ul>
+          <li>One formula sets every monthly order: <strong>1.10 &times; Last Month Usage &minus; Stock</strong> [1].</li>
+          <li>Rarely used <strong>life-saving drugs</strong> receive <code>0</code> orders after a quiet month.</li>
+          <li>Busy months cause <strong>over-ordering &amp; expiration</strong> (e.g., <em>Acarbose 100 mg</em>).</li>
+          <li>When budget runs short, funds reach less critical drugs first.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Supporting Evidence</h3>
+        <ul>
+          <li><strong>Head of Pharmacy [1]:</strong> Shortages stem primarily from inaccurate need estimates, secondarily from budget limits.</li>
+          <li><strong>JKN / BPJS [4]:</strong> Drugs are bundled; patients cannot be reimbursed for cash purchases outside.</li>
+          <li><strong>e-Katalog [5]:</strong> Drug-by-drug purchasing slows emergency recovery [1].</li>
+          <li><strong>Thai &amp; Padang Studies [3][6]:</strong> No single formula fits sporadic demand; vital drugs must stay protected.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 2 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>3. Intended Users &amp; Existing Alternatives (Sec. 2.4)</h2>
+    <table>
+      <thead><tr><th>Dimension</th><th>RSUD Formula (1 Mo + 10%)</th><th>Static Excel (5&times; AMC)</th><th>Conventional VEN (Permenkes)</th><th>SigapStok (Ours)</th></tr></thead>
+      <tbody>
+        <tr><td>Forecasting Basis</td><td>1 formula for all items</td><td>Fixed 5&times; multiplier</td><td>Manual consumption averages</td><td><strong>Pattern-matched (SES / Holt / SBA) + Epoch MLP</strong></td></tr>
+        <tr><td>Vital Drug Protection</td><td>None</td><td>None</td><td>Static V/E/N tag only</td><td><strong>Vital/DOEN-first + Minimum Standby Buffer</strong></td></tr>
+        <tr><td>Expiry Risk (ED)</td><td>Ignored</td><td>Still orders high-stock items</td><td>Manual shelf check</td><td><strong>Automatic ED-Usable Stock Capping</strong></td></tr>
+        <tr><td>Budget Shortfall</td><td>Silent failure</td><td>Silent failure</td><td>Manual cuts without impact</td><td><strong>Ranked list + Expected Days Without Stock</strong></td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:16px;"><strong>Users:</strong> Pharmacy Warehouse Staff (planners) &rarr; Management &amp; Procurement (decision &amp; e-Catalogue) &rarr; Patients (fewer waits).</p>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 3 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>4. Proposed Solution &amp; Live Demo Flow</h2>
+    <div class="grid3">
+      <div class="box"><h3>Step 1: Upload &amp; Inspect</h3><p>Upload SIMRS usage/stock + price/DOEN sheets (<code>.xlsx/.csv</code>). Auto-checks columns &amp; suggests DOEN-based VEN flags.</p></div>
+      <div class="box"><h3>Step 2: Forecast &amp; Adjust</h3><p>Classifies demand (ADI/CV&sup2;), caps stock by Expiry Date, and lets staff override quantities with a logged reason.</p></div>
+      <div class="box"><h3>Step 3: Rank &amp; Share</h3><p>Enter monthly budget. Ranks <strong>Vital-first</strong>, shows <code>expected_days_without_stock</code>, and exports one-page report / CSV.</p></div>
+    </div>
+    <p style="margin-top:16px;"><strong>Scope v1:</strong> One pharmacy warehouse, one monthly cycle, zero patient medical records.</p>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 4 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>5. Technical Architecture &amp; Relational Database</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>Modular Python Stack</h3>
+        <ul>
+          <li><code>web_app.py</code>: Local Web Dashboard &amp; REST API (<code>http://127.0.0.1:8000</code>).</li>
+          <li><code>ingestion.py</code>: Column validation, ED parsing, DOEN/VEN auto-suggestion.</li>
+          <li><code>forecasting.py</code> &amp; <code>trainer.py</code>: Statistical + 250-epoch NumPy MLP Hybrid.</li>
+          <li><code>ranking.py</code> &amp; <code>simulation.py</code>: Budget allocator &amp; 6-month FEFO simulator.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>7 Normalized SQLite Tables</h3>
+        <ul>
+          <li><code>drugs</code> &amp; <code>upload_batches</code> (batch metadata &amp; warnings)</li>
+          <li><code>monthly_usage_history</code> (multi-month time series)</li>
+          <li><code>stock_batches_ed</code> (physical vs. ED-usable stock)</li>
+          <li><code>forecast_results</code> (includes manual override &amp; reason)</li>
+          <li><code>budget_ranking_results</code> &amp; <code>simulation_runs</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 5 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>6. Pattern Classification &amp; ED-Usable Stock Capping</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>Syntetos–Boylan (ADI &amp; CV&sup2;) + ABC/XYZ/FSN</h3>
+        <ul>
+          <li><strong>Smooth:</strong> Simple Exponential Smoothing (SES)</li>
+          <li><strong>Erratic:</strong> Damped Holt Exponential Smoothing</li>
+          <li><strong>Intermittent / Lumpy:</strong> <strong>SBA</strong> (bias-corrected Croston) + Vital Standby Buffer</li>
+          <li><strong>ABC / XYZ / FSN:</strong> Quantifies spend, variability, and turnover velocity.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Preventing Expiry Waste (ED Capping)</h3>
+        <p><code>Usable = min(Physical, Monthly_Forecast &times; ED_Months) &minus; Loan_Out</code></p>
+        <p>Example from RSUD data (<em>Acarbose 100 mg</em>): 4,446 physical units with 6 months to ED &rarr; <strong>1,321+ units at expiry risk</strong>. SigapStok flags ED risk and sets order to <code>0</code>.</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 6 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>7. Epoch Training &amp; Forecast Accuracy</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>250-Epoch Hybrid Model</h3>
+        <ul>
+          <li>2-Layer NumPy MLP (Adam, Dropout <code>0.15</code>, L2 <code>1e-3</code>, Cosine LR) + lag-12 seasonal features.</li>
+          <li>Blended with validation-tuned statistical parameters per pattern.</li>
+          <li>Overfitting fixed via 36-month rolling-origin splits &amp; regularization.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Held-Out Test Set (Months 30–35)</h3>
+        <table>
+          <thead><tr><th>Model</th><th>MAE</th><th>Accuracy</th></tr></thead>
+          <tbody>
+            <tr><td>RSUD Formula (1 Mo + 10%)</td><td>73.31</td><td>74.09%</td></tr>
+            <tr><td>Excel 3-Mo AMC</td><td>58.49</td><td>79.33%</td></tr>
+            <tr><td>SigapStok Untrained Stat</td><td>53.12</td><td>81.23%</td></tr>
+            <tr><td><strong>SigapStok Trained Hybrid</strong></td><td><strong>51.26</strong></td><td><strong>81.89%</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 7 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>8. Section 4.4: Vital-First Budget Ranking Logic</h2>
+    <div class="box">
+      <ol style="font-size:19px; line-height:1.6;">
+        <li><strong>Compute Net Order &amp; Runway:</strong> <code>Days_of_Supply = Usable_Stock / Daily_Forecast</code>; <code>Expected_Days_Without_Stock = max(0, 30 - DoS)</code>.</li>
+        <li><strong>Lexicographic Priority Tuple:</strong> <code>(VEN: V &gt; E &gt; N)</code> &rarr; <code>(Lowest Days of Supply)</code> &rarr; <code>(ABC-VEN Matrix &amp; Days-Saved-per-IDR)</code>.</li>
+        <li><strong>Constrained Allocation:</strong> Assigns <code>FULL_ORDER</code>, <code>PARTIAL_ORDER</code> (for divisible V/E items), or <code>EXCLUDED_OVER_BUDGET</code> with explicit explanation and expected stockout days.</li>
+      </ol>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 8 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>9. Fair 6-Month Comparison Simulation Results</h2>
+    <p>Controlled environment: identical daily demand stream, Rp 30M/month budget cap, 7-day lead time, FEFO expiry.</p>
+    <table>
+      <thead><tr><th>Strategy</th><th>Vital Stockout Days</th><th>Total Stockout Days</th><th>Expired Units</th><th>Fill Rate</th></tr></thead>
+      <tbody>
+        <tr><td>RSUD_Current_Formula</td><td>58</td><td>191</td><td>0.0</td><td>83.80%</td></tr>
+        <tr><td>Static_Excel_3Mo_AMC</td><td>45</td><td>170</td><td>0.0</td><td>87.65%</td></tr>
+        <tr><td>SigapStok (Untrained Stat)</td><td>26</td><td>112</td><td>0.0</td><td>88.40%</td></tr>
+        <tr><td><strong>SigapStok_Trained (Hybrid)</strong></td><td><strong>24 (-58.6%)</strong></td><td><strong>110 (-42.4%)</strong></td><td><strong>0.0</strong></td><td><strong>88.94%</strong></td></tr>
+      </tbody>
+    </table>
+    <div class="grid3" style="margin-top:18px;">
+      <div class="box"><div class="kpi">-58.6%</div><div>Reduction in Vital Stockout Days</div></div>
+      <div class="box"><div class="kpi">88.94%</div><div>Service Fill Rate Under Tight Budget</div></div>
+      <div class="box"><div class="kpi">10/10</div><div>Automated Unit &amp; Web Tests Passing</div></div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 9 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>10. Final Day Build Improvements</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>Completed Today</h3>
+        <ul>
+          <li>Built full interactive Web Application (<code>web_app.py</code>).</li>
+          <li>Added real-time <strong>Budget Sensitivity Slider</strong> &amp; <strong>VEN Confirmation</strong>.</li>
+          <li>Added <strong>Manual Quantity Override</strong> with SQLite audit reasons.</li>
+          <li>Added <strong>One-Page Printable Report</strong> &amp; <strong>Procurement CSV Export</strong>.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>End-to-End Verification</h3>
+        <ul>
+          <li>All core API endpoints (<code>/api/demo</code>, <code>/api/upload</code>, <code>/api/adjust</code>, <code>/api/rank</code>, <code>/api/export_csv</code>, <code>/api/simulate</code>) verified by automated tests.</li>
+          <li>Zero proprietary runtime dependencies outside Python + NumPy/Pandas/OpenPyXL.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 10 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>11. Honest Limitations, Privacy &amp; AI Disclosure</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>Limitations &amp; Privacy</h3>
+        <ul>
+          <li><strong>Synthetic Data:</strong> All 18 SKUs &amp; 36-month series are synthetic data mimicking RSUD Kilisuci exports.</li>
+          <li><strong>Irreducible Variance:</strong> Overall test accuracy (~81.89%) reflects &plusmn;48% erratic &amp; 2.5&times; lumpy synthetic noise.</li>
+          <li><strong>Zero Patient Data:</strong> No patient records or PII are processed.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Material AI Assistance Disclosure</h3>
+        <ul>
+          <li><strong>Tool:</strong> Antigravity / Gemini AI Coding Assistant.</li>
+          <li><strong>Role:</strong> Assisted with modular Python scaffolding, NumPy MLP training loop, web dashboard UI, and test authoring.</li>
+          <li>All domain rules (Permenkes/VEN/DOEN) and outputs were verified by the team.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 11 / 12</span></div>
+</div>
+
+<div class="slide">
+  <div>
+    <h2>12. Next Steps &amp; Impact</h2>
+    <div class="box">
+      <ul>
+        <li><strong>Pilot Calibration:</strong> Validate synthetic thresholds and DOEN mappings with RSUD Kilisuci pharmacy staff on historical SIMRS exports.</li>
+        <li><strong>Direct e-Catalogue Linking:</strong> Map approved ranked items directly to LKPP e-Catalogue product codes to cut procurement time.</li>
+        <li><strong>Multi-Warehouse Scaling:</strong> Extend v1 single-warehouse scope to satellite clinics and regional health offices.</li>
+      </ul>
+    </div>
+    <p style="margin-top:24px; font-size:22px; color:#0f4c81; font-weight:700;">Thank You! Ready for Live Demonstration &amp; Q&amp;A.</p>
+  </div>
+  <div class="footer"><span>SigapStok — STACK 2026 Final Deck</span><span>Slide 12 / 12</span></div>
+</div>
+
+</body>
+</html>
